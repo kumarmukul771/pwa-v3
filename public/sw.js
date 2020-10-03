@@ -1,3 +1,5 @@
+importScripts("/src/js/idb.js");
+importScripts("/src/js/utility.js");
 const CACHE_STATIC_NAME = "static-v17";
 const CACHE_DYNAMIC_NAME = "dynamic-v2";
 const STATIC_FILES = [
@@ -8,6 +10,7 @@ const STATIC_FILES = [
   "/src/js/feed.js",
   "/src/js/promise.js",
   "/src/js/fetch.js",
+  "/src/js/idb.js",
   "/src/js/material.min.js",
   "/src/css/app.css",
   "/src/css/feed.css",
@@ -65,59 +68,47 @@ self.addEventListener("activate", (event) => {
   return self.clients.claim();
 });
 
-var url = "https://httpbin.org/get";
 // Cache then network strategy
-self.addEventListener("fetch", (event) => {
+self.addEventListener("fetch", function (event) {
+  var url = "https://pwagram-c7f7e.firebaseio.com/posts.json";
   if (event.request.url.indexOf(url) > -1) {
-    // Cache then network strategy
     event.respondWith(
-      caches.open(CACHE_DYNAMIC_NAME).then((cache) => {
-        return fetch(event.request).then((res) => {
-          console.log("Caching");
-        //   trimCache(CACHE_DYNAMIC_NAME, 3);
-          cache.put(event.request, res.clone());
-          return res;
-        });
+      fetch(event.request).then(function (res) {
+        var clonedRes = res.clone();
+        clearAllData("posts")
+          .then(function () {
+            return clonedRes.json();
+          })
+          .then(function (data) {
+            for (var key in data) {
+              writeData("posts", data[key]);
+            }
+          });
+
+        return res;
       })
     );
+  } else if (isInArray(event.request.url, STATIC_FILES)) {
+    event.respondWith(caches.match(event.request));
   } else {
-    // Cache then network fallback strategy
     event.respondWith(
-      caches.match(event.request).then((response) => {
+      caches.match(event.request).then(function (response) {
         if (response) {
           return response;
-        }
-        // Another way without using regex(regex may give error in some cases)
-        //  is using helper function isInArray
-        else if (isInArray(event.request.url, STATIC_FILES)) {
-          event.respondWith(caches.match(event.request));
-        }
-        // else if (
-        //   new RegExp("\\b" + STATIC_FILES.join("\\b|\\b") + "\\b").test(
-        //     event.request.url
-        //   )
-        // ) {
-        // Cache only strategy for static files as they are not gonna change
-        //   event.respondWith(caches.match(event.request));
-        // }
-        else {
+        } else {
           return fetch(event.request)
-            .then((res) => {
-              return caches.open(CACHE_DYNAMIC_NAME).then((cache) => {
+            .then(function (res) {
+              return caches.open(CACHE_DYNAMIC_NAME).then(function (cache) {
                 // trimCache(CACHE_DYNAMIC_NAME, 3);
                 cache.put(event.request.url, res.clone());
                 return res;
               });
             })
-            .catch((err) => {
-              return caches.open(CACHE_STATIC_NAME).then((cache) => {
-                //   Making if block more flexible
+            .catch(function (err) {
+              return caches.open(CACHE_STATIC_NAME).then(function (cache) {
                 if (event.request.headers.get("accept").includes("text/html")) {
                   return cache.match("/offline.html");
                 }
-                // if (event.request.url.indexOf("/help")) {
-                //   return cache.match("/offline.html");
-                // }
               });
             });
         }

@@ -1,6 +1,6 @@
 importScripts("/src/js/idb.js");
 importScripts("/src/js/utility.js");
-const CACHE_STATIC_NAME = "static-v17";
+const CACHE_STATIC_NAME = "static-v26";
 const CACHE_DYNAMIC_NAME = "dynamic-v2";
 const STATIC_FILES = [
   "/",
@@ -115,6 +115,135 @@ self.addEventListener("fetch", function (event) {
       })
     );
   }
+});
+
+
+
+// This event will be executed whenever the sw beleives it re-established connectivity
+// or if connection was always there as soon as the new sync task was triggered
+self.addEventListener("sync", function (event) {
+  console.log("[Service worker] Background Syncing", event);
+
+  if (event.tag === "sync-new-posts") {
+    console.log("[Service worker] Syncing new posts");
+    event.waitUntil(
+      // Get data from indexedDB
+      readAllData("sync-posts").then(function (data) {
+        console.log(data);
+        for (var dt of data) {
+          // Try sending each data one by one to server(to custom endpoint)
+          fetch(
+            " https://us-central1-pwagram-c7f7e.cloudfunctions.net/storePostData",
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Accept: "application/json",
+              },
+              body: JSON.stringify({
+                id: dt.id,
+                title: dt.title,
+                location: dt.location,
+                image:
+                  "https://c4.wallpaperflare.com/wallpaper/598/699/634/disha-patani-women-actress-model-bollywood-actresses-hd-wallpaper-preview.jpg",
+              }),
+            }
+          )
+            .then((res) => {
+              console.log("Sent data in serviceWorker", res);
+              if (res.ok) {
+                res.json().then((resData) => {
+                  deleteFromData("sync-posts", resData.id);
+                });
+              }
+            })
+            .catch((err) => {
+              console.log("Error sending data");
+            });
+        }
+      })
+    );
+  }
+});
+
+self.addEventListener("notificationclick", (event) => {
+  var notification = event.notification;
+  var action = event.action;
+  console.log(notification);
+
+  if (action === "confirm") {
+    console.log("Confirm was clicked");
+    notification.close();
+  } else {
+    console.log(action);
+
+    event.waitUntil(
+      // clients refers to all windows or all browser tasks related to this serviceWorker
+      clients.matchAll().then((clis) => {
+        // Now here we want to find windows managed by this serviceWorker which are visible,
+        // so open windows where our application runs
+        var client = clis.find((c) => {
+          return c.visibilityState === "visible";
+        });
+
+        if (client !== undefined) {
+          client.navigate(notification.data.url);
+          client.focus();
+        } else {
+          clients.openWindow(notification.data.url);
+        }
+      })
+    );
+
+    // event.waitUntil(
+    //     clients.matchAll()
+    //       .then(function(clis) {
+    //         var client = clis.find(function(c) {
+    //           return c.visibilityState === 'visible';
+    //         });
+  
+    //         if (client !== undefined) {
+    //           client.navigate(notification.data.url);
+    //           client.focus();
+    //         } else {
+    //           clients.openWindow(notification.data.url);
+    //         }
+    //         notification.close();
+    //       })
+    //   );
+    notification.close();
+  }
+});
+
+// When we swipe notification
+self.addEventListener("notificationclose", (event) => {
+  console.log("Notification was closed.", event);
+});
+
+// Listening to push messages
+self.addEventListener("push", (event) => {
+  console.log("Push notification received!", event);
+
+  var data = {
+    title: "New!",
+    content: "Something new happened!",
+    openUrl: "/",
+  };
+
+  if (event.data) {
+    data = JSON.parse(event.data.text());
+  }
+
+  var options = {
+    body: data.content,
+    icon: "/src/images/icons/app-icon-96x96.png",
+    badge: "/src/images/icons/app-icon-96x96.png",
+    data: {
+      url: data.openUrl,
+    },
+  };
+
+  event.waitUntil(self.registration.showNotification(data.title, options));
 });
 
 // Cache then network fall strategy
